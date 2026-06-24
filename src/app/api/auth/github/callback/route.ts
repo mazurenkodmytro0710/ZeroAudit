@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const error = req.nextUrl.searchParams.get('error')
 
   if (error || !code) {
-    return NextResponse.redirect(new URL('/integrations?error=denied', req.url))
+    return NextResponse.redirect(new URL('/?tab=integrations&error=denied', req.url))
   }
 
   const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
@@ -23,10 +23,10 @@ export async function GET(req: NextRequest) {
 
   const tokenData = await tokenRes.json()
   if (!tokenData.access_token) {
-    return NextResponse.redirect(new URL('/integrations?error=token_failed', req.url))
+    return NextResponse.redirect(new URL('/?tab=integrations&error=token_failed', req.url))
   }
 
-  const response = NextResponse.redirect(new URL('/integrations?connected=true', req.url))
+  const response = NextResponse.redirect(new URL('/?tab=integrations&connected=true', req.url))
   response.cookies.set('github_token', tokenData.access_token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

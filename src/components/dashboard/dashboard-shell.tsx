@@ -81,13 +81,21 @@ function TabSyncer({ onTab }: { onTab: (tab: TabId) => void }) {
   const searchParams = useSearchParams()
   useEffect(() => {
     const tab = searchParams.get('tab') as TabId | null
+    const connected = searchParams.get('connected')
+    const error = searchParams.get('error')
+
     if (tab === 'evidence' || tab === 'reports' || tab === 'integrations') {
       onTab(tab)
     } else {
       onTab('overview')
     }
-    if (searchParams.get('connected') === 'true') showToast('GitHub connected!', 'success')
-    if (searchParams.get('error')) showToast('GitHub connection failed. Try again.', 'warning')
+
+    if (tab === 'integrations' && connected === 'true') {
+      showToast('GitHub connected successfully!', 'success')
+    }
+    if (tab === 'integrations' && error) {
+      showToast('GitHub connection failed. Try again.', 'warning')
+    }
   }, [searchParams, onTab])
   return null
 }
