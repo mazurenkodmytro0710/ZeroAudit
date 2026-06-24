@@ -1,3 +1,17 @@
+// Single-table design — everything in one DynamoDB table.
+// Spent a good chunk of time on this schema. The key insight was
+// that all queries are always scoped to an org, so ORG#<orgId>
+// as PK naturally isolates tenant data without extra filtering.
+
+// GSI1: ORG#orgId#CONTROL#controlId / collectedAt
+// → "give me all CC6.1 evidence sorted by time"
+//
+// GSI2: ORG#orgId#STATUS#coverageStatus / controlId
+// → "give me all missing controls for this org"
+//
+// Tried putting status in a different attribute first but you can't
+// filter on non-key attributes efficiently in DynamoDB without GSI.
+
 interface BaseEntity {
   PK: string;
   SK: string;

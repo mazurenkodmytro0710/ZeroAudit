@@ -197,6 +197,12 @@ export async function getAgentRun(orgId: string, runId: string): Promise<AgentRu
 }
 
 export async function getAllEvidenceByOrg(orgId: string): Promise<EvidenceArtifact[]> {
+  // Note: SK starts with EVIDENCE# so we can use begins_with() to get
+  // all evidence for an org without a GSI. Took me a bit to realize
+  // this was simpler than what I had originally (was using GSI1 for everything)
+  //
+  // TODO: add pagination — right now this scans everything which will be
+  // slow at scale. For the hackathon demo it's fine with 6 controls.
   try {
     const result = await docClient.send(
       new QueryCommand({

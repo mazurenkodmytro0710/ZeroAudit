@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
   try {
     const rawGaps = await getGapsByOrg(orgId);
 
+    // deduplication here because early on the agent was saving duplicate
+    // artifacts on every run. Map keeps the latest collectedAt per controlId.
+    // Probably should fix this at the write level eventually but this works for now.
     const latestByControl = new Map<string, typeof rawGaps[number]>();
     for (const artifact of rawGaps) {
       const existing = latestByControl.get(artifact.controlId);
@@ -38,11 +41,17 @@ export async function GET(request: NextRequest) {
     }
     const gaps = Array.from(latestByControl.values());
 
+    // totalControls hardcoded to 6 here because we only scan 6 controls.
+    // The UI shows "3/6" which is accurate. Could make this dynamic
+    // by counting distinct controlIds in DynamoDB but overkill for now.
     const totalControls = 6;
     const missingControls = gaps.filter((a) => a.coverageStatus === 'missing').length;
     const partialControls = gaps.filter((a) => a.coverageStatus === 'partial').length;
     const coveredControls = Math.max(0, totalControls - partialControls - missingControls);
     const securityGapsFound = missingControls + partialControls;
+    // coveragePercent: debated whether partial should be 0% or 50%,
+    // landed on covered/total — partial still counts as a gap in this view.
+    // An auditor would probably disagree but this is for the dashboard readiness score.
     const coveragePercent = Math.round((coveredControls / totalControls) * 100);
     const lastUpdated =
       gaps.length > 0

@@ -20,6 +20,9 @@ if (!process.env.GEMINI_API_KEY) {
   console.error('[ZeroAudit] GEMINI_API_KEY is not set — agent will fail at runtime')
 }
 
+// Switched from Gemini to Grok mid-development because Gemini's
+// free tier hit limit:0 daily quota. Grok's OpenAI-compatible API
+// made the switch pretty painless — just changed the base URL.
 const AI_PROVIDER = process.env.AI_PROVIDER ?? 'gemini' // 'gemini' | 'grok'
 
 const grokClient = new OpenAI({
@@ -468,7 +471,9 @@ async function runAgentBackground(orgId: string, runId: string, pdApiKey?: strin
       )
     }
 
-    // Free tier rate limit: 5 req/min — wait 20s between controls
+    // 20 second delay between controls because Grok rate limits pretty
+    // aggressively on the free tier. Could batch these but then the
+    // terminal animation in the UI wouldn't make sense visually.
     const isLastControl = MOCK_CONTROLS.indexOf(control) === MOCK_CONTROLS.length - 1
     if (!isLastControl) {
       await new Promise(r => setTimeout(r, 20000))
@@ -498,6 +503,9 @@ export async function POST(request: NextRequest) {
     const runId = crypto.randomUUID()
     await createAgentRun(orgId, runId)
 
+    // Fire-and-forget pattern here — return 202 immediately so the UI
+    // can start polling. Tried doing this synchronously first but the
+    // Vercel function was timing out at 10s with 6 controls + AI calls.
     void runAgentBackground(orgId, runId, pdApiKey).catch(async (fatalError) => {
       console.error('[POST /api/agent/run] Fatal unhandled error:', fatalError)
       try {
