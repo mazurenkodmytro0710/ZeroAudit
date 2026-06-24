@@ -4,6 +4,7 @@
 export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { GoogleGenAI, Type } from '@google/genai'
 import OpenAI from 'openai'
 import {
@@ -11,6 +12,7 @@ import {
   updateAgentRun,
   saveEvidenceArtifact,
 } from '@/services/dbService'
+import { logger } from '@/lib/logger'
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' })
 
@@ -171,15 +173,14 @@ async function callGeminiWithRetry(
         const isLastModel = model === models[models.length - 1]
 
         if ((is503 || isRateLimit) && !isLastAttempt) {
-          // Wait before retry: 1s, 2s
           await new Promise(r => setTimeout(r, (attempt + 1) * 1000))
           continue
         }
         if ((is503 || isRateLimit || isNotFound) && !isLastModel) {
           console.warn(`[Gemini] ${model} failed (${e?.status}), trying next model`)
-          break // try next model
+          break
         }
-        throw e // non-retryable error or exhausted all models
+        throw e
       }
     }
   }
@@ -248,26 +249,171 @@ Analyze this evidence and determine compliance status for control ${control.cont
     return JSON.parse(raw) as GeminiAuditResult
   }
 
-  // Default: Gemini
   return analyzeControlWithGemini(control)
 }
 
-async function runAgentBackground(orgId: string, runId: string): Promise<void> {
+async function fetchPagerDutyEvidence(pdApiKey?: string): Promise<string> {
+  const apiKey = pdApiKey ?? process.env.PAGERDUTY_API_KEY
+  if (!apiKey) return ''
+
+  try {
+    const since = new Date()
+    since.setDate(since.getDate() - 90)
+    const headers = {
+      'Authorization': `Token token=${apiKey}`,
+      'Accept': 'application/vnd.pagerduty+json;version=2',
+    }
+
+    const [incRes, svcRes, onCallRes] = await Promise.all([
+      fetch(`https://api.pagerduty.com/incidents?since=${since.toISOString()}&limit=100`, { headers }),
+      fetch('https://api.pagerduty.com/services?limit=25', { headers }),
+      fetch('https://api.pagerduty.com/oncalls?limit=25', { headers }),
+    ])
+
+    const [incData, svcData, onCallData] = await Promise.all([
+      incRes.json(), svcRes.json(), onCallRes.json()
+    ])
+
+    const incidents = incData.incidents ?? []
+    const services = svcData.services ?? []
+    const oncalls = onCallData.oncalls ?? []
+
+    const p1 = incidents.filter((i: any) => i.priority?.name === 'P1').length
+    const resolved = incidents.filter((i: any) => i.status === 'resolved').length
+    const open = incidents.filter((i: any) => i.status === 'triggered').length
+
+    const resolutionTimes = incidents
+      .filter((i: any) => i.status === 'resolved' && i.created_at && i.last_status_change_at)
+      .map((i: any) => (new Date(i.last_status_change_at).getTime() - new Date(i.created_at).getTime()) / (1000 * 60 * 60))
+    const avgRes = resolutionTimes.length > 0
+      ? (resolutionTimes.reduce((a: number, b: number) => a + b, 0) / resolutionTimes.length).toFixed(1)
+      : 'N/A'
+
+    logger.info('Agent: PagerDuty evidence fetched', { total: incidents.length, p1, open })
+
+    return `REAL PagerDuty data (last 90 days):
+Total incidents: ${incidents.length}
+  - P1 (critical): ${p1}
+  - Resolved: ${resolved}
+  - Currently open: ${open}
+Average resolution time: ${avgRes} hours
+Services monitored: ${services.length}
+On-call coverage: ${oncalls.length > 0 ? 'YES — ' + oncalls.length + ' schedules active' : 'NO on-call schedules found'}
+${open > 0 ? `WARNING: ${open} incidents currently open and unresolved` : 'All incidents resolved'}
+${p1 > 0 ? `NOTE: ${p1} P1 critical incidents in last 90 days` : 'No P1 critical incidents'}`
+  } catch (err) {
+    logger.error('Agent: PagerDuty fetch failed', { error: String(err) })
+    return ''
+  }
+}
+
+async function fetchAWSEvidence(): Promise<string> {
+  try {
+    const { CloudTrailClient, LookupEventsCommand } = await import('@aws-sdk/client-cloudtrail')
+
+    const client = new CloudTrailClient({
+      region: process.env.AWS_REGION ?? 'eu-north-1',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    })
+
+    const since = new Date()
+    since.setDate(since.getDate() - 90)
+
+    const [iamEvents, loginEvents] = await Promise.all([
+      client.send(new LookupEventsCommand({
+        StartTime: since,
+        EndTime: new Date(),
+        LookupAttributes: [{ AttributeKey: 'EventSource', AttributeValue: 'iam.amazonaws.com' }],
+        MaxResults: 50,
+      })),
+      client.send(new LookupEventsCommand({
+        StartTime: since,
+        EndTime: new Date(),
+        LookupAttributes: [{ AttributeKey: 'EventName', AttributeValue: 'ConsoleLogin' }],
+        MaxResults: 50,
+      })),
+    ])
+
+    const iamList = iamEvents.Events ?? []
+    const loginList = loginEvents.Events ?? []
+
+    const mfaLogins = loginList.filter((e) => {
+      try {
+        const detail = JSON.parse(e.CloudTrailEvent ?? '{}')
+        return detail.additionalEventData?.MFAUsed === 'Yes'
+      } catch { return false }
+    })
+
+    const userCreations = iamList.filter((e) => e.EventName === 'CreateUser').length
+    const userDeletions = iamList.filter((e) => e.EventName === 'DeleteUser').length
+    const policyChanges = iamList.filter((e) =>
+      ['AttachUserPolicy', 'DetachUserPolicy', 'PutUserPolicy'].includes(e.EventName ?? '')
+    ).length
+
+    const mfaPct = loginList.length > 0
+      ? Math.round((mfaLogins.length / loginList.length) * 100)
+      : 100
+
+    logger.info('Agent: AWS CloudTrail evidence fetched', {
+      iamEvents: iamList.length,
+      logins: loginList.length,
+      mfa: mfaLogins.length,
+    })
+
+    return `REAL AWS CloudTrail data (last 90 days, region: ${process.env.AWS_REGION}):
+IAM events total: ${iamList.length}
+  - User creations: ${userCreations}
+  - User deletions: ${userDeletions}
+  - Policy changes: ${policyChanges}
+Console logins: ${loginList.length}
+  - With MFA: ${mfaLogins.length} (${mfaPct}%)
+  - Without MFA: ${loginList.length - mfaLogins.length}
+CloudTrail logging: ENABLED (events being collected)
+${mfaPct < 100 ? `WARNING: ${100 - mfaPct}% of logins did not use MFA` : 'All console logins used MFA'}
+${policyChanges > 0 ? `NOTE: ${policyChanges} IAM policy changes detected — verify all are authorized` : 'No unauthorized policy changes detected'}`
+  } catch (err) {
+    logger.error('Agent: AWS CloudTrail fetch failed', { error: String(err) })
+    return ''
+  }
+}
+
+async function runAgentBackground(orgId: string, runId: string, pdApiKey?: string): Promise<void> {
   let controlsProcessed = 0
   let gapsFound = 0
 
   for (const control of MOCK_CONTROLS) {
+    let controlEvidence = control.mockEvidence
+
+    if (control.controlId === 'CC7.4') {
+      const pdEvidence = await fetchPagerDutyEvidence(pdApiKey)
+      if (pdEvidence) {
+        controlEvidence = pdEvidence + '\n\n--- Additional context ---\n' + control.mockEvidence
+        logger.info('Agent: using real PagerDuty data for CC7.4')
+      }
+    }
+
+    if (control.controlId === 'A1.2') {
+      const awsEvidence = await fetchAWSEvidence()
+      if (awsEvidence) {
+        controlEvidence = awsEvidence + '\n\n--- Additional context ---\n' + control.mockEvidence
+        logger.info('Agent: using real AWS CloudTrail data for A1.2')
+      }
+    }
+
+    const effectiveControl = { ...control, mockEvidence: controlEvidence }
+
     let auditResult: GeminiAuditResult
 
-    // Step 1: Call AI provider
     try {
-      auditResult = await analyzeControl(control)
+      auditResult = await analyzeControl(effectiveControl)
     } catch (aiError) {
       console.error(
         `[runAgentBackground] AI analysis failed for ${control.controlId}:`,
         aiError
       )
-      // Fallback result — do not stop the entire run
       auditResult = {
         status: 'missing',
         reasoning: 'AI analysis unavailable — manual review required.',
@@ -275,7 +421,6 @@ async function runAgentBackground(orgId: string, runId: string): Promise<void> {
       }
     }
 
-    // Step 2: Persist to DynamoDB
     const artifactId = crypto.randomUUID()
     const collectedAt = new Date().toISOString()
     try {
@@ -285,7 +430,7 @@ async function runAgentBackground(orgId: string, runId: string): Promise<void> {
         controlId: control.controlId,
         artifactType: control.artifactType,
         sourceUrl: `mock://agent-run/${runId}/${control.controlId}`,
-        rawData: control.mockEvidence,
+        rawData: controlEvidence,
         aiClassification: JSON.stringify(auditResult),
         coverageStatus: auditResult.status,
         collectedAt,
@@ -296,14 +441,12 @@ async function runAgentBackground(orgId: string, runId: string): Promise<void> {
         GSI2SK: control.controlId,
       })
     } catch (dbError) {
-      // Non-fatal: log and continue — agent run survives DB hiccups
       console.warn(
         `[runAgentBackground] DynamoDB save failed for ${control.controlId} — continuing:`,
         dbError
       )
     }
 
-    // Step 3: Update run progress
     controlsProcessed++
     if (auditResult.status !== 'covered') gapsFound++
 
@@ -323,7 +466,6 @@ async function runAgentBackground(orgId: string, runId: string): Promise<void> {
         `[runAgentBackground] updateAgentRun failed after ${control.controlId}:`,
         updateError
       )
-      // Non-fatal — progress tracking failed but audit continues
     }
 
     // Free tier rate limit: 5 req/min — wait 20s between controls
@@ -333,7 +475,6 @@ async function runAgentBackground(orgId: string, runId: string): Promise<void> {
     }
   }
 
-  // Step 4: Mark completed
   await updateAgentRun(orgId, runId, {
     status: 'completed',
     agentMemory: JSON.stringify({
@@ -351,10 +492,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'orgId is required' }, { status: 400 })
     }
 
+    const cookieStore = await cookies()
+    const pdApiKey = cookieStore.get('pd_api_key')?.value
+
     const runId = crypto.randomUUID()
     await createAgentRun(orgId, runId)
 
-    void runAgentBackground(orgId, runId).catch(async (fatalError) => {
+    void runAgentBackground(orgId, runId, pdApiKey).catch(async (fatalError) => {
       console.error('[POST /api/agent/run] Fatal unhandled error:', fatalError)
       try {
         await updateAgentRun(orgId, runId, { status: 'failed' })

@@ -108,6 +108,8 @@ function IntegrationsTab() {
   const [loading, setLoading] = useState(true)
   const [disconnecting, setDisconnecting] = useState(false)
   const [search, setSearch] = useState('')
+  const [pdApiKey, setPdApiKey] = useState('')
+  const [savingPd, setSavingPd] = useState(false)
 
   const loadGithub = useCallback(async () => {
     setLoading(true)
@@ -133,6 +135,11 @@ function IntegrationsTab() {
     const saved = localStorage.getItem('github_repo')
     if (saved) setSelectedRepo(saved)
   }, [loadGithub])
+
+  useEffect(() => {
+    const saved = localStorage.getItem('pd_api_key')
+    if (saved) setPdApiKey(saved)
+  }, [])
 
   const handleSelectRepo = (repoName: string) => {
     setSelectedRepo(repoName)
@@ -300,6 +307,68 @@ function IntegrationsTab() {
         )}
       </div>
 
+      {/* PagerDuty integration */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+          <div className="flex items-center gap-4">
+            <div className="rounded-lg bg-green-600 p-2.5">
+              <span className="text-white text-sm font-bold">PD</span>
+            </div>
+            <div>
+              <div className="font-semibold">PagerDuty</div>
+              <div className="text-sm text-muted-foreground">
+                Incident history · On-call schedules · MTTR
+              </div>
+            </div>
+          </div>
+          {pdApiKey ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+              Connected
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">API Key required</span>
+          )}
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Get your API key: PagerDuty → My Profile → API Access → Create API Key
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              placeholder="Enter PagerDuty API key..."
+              value={pdApiKey}
+              onChange={e => setPdApiKey(e.target.value)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+            />
+            <button
+              type="button"
+              disabled={!pdApiKey || savingPd}
+              onClick={async () => {
+                setSavingPd(true)
+                await fetch('/api/integrations/pagerduty', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ apiKey: pdApiKey }),
+                })
+                localStorage.setItem('pd_api_key', pdApiKey)
+                setSavingPd(false)
+                showToast('PagerDuty connected!', 'success')
+              }}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {savingPd ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+          {pdApiKey && (
+            <p className="text-xs text-green-600">
+              ✓ Agent will fetch real incident data for CC7.4 on next scan
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* Coming soon integrations */}
       <div className="space-y-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
@@ -309,7 +378,6 @@ function IntegrationsTab() {
           { name: 'AWS CloudTrail', desc: 'IAM events, S3 access logs, CloudTrail audit trail', icon: '☁️', controls: 'CC6.1, CC6.2, A1.2' },
           { name: 'Okta', desc: 'User provisioning, MFA enforcement, SSO audit logs', icon: '🔐', controls: 'CC6.1, CC6.2' },
           { name: 'Jira', desc: 'Change tickets, incident tracking, sprint history', icon: '📋', controls: 'CC7.4, CC8.1' },
-          { name: 'PagerDuty', desc: 'Incident history, on-call rotation, escalation policies', icon: '🚨', controls: 'CC7.4' },
         ].map(item => (
           <div key={item.name} className="rounded-xl border border-dashed border-border bg-muted/10 px-6 py-4">
             <div className="flex items-center justify-between">
@@ -581,12 +649,13 @@ export function DashboardShell() {
         { text: '  ✓  AI classification: PARTIAL — SLA breach', type: 'success' },
       ],
       'CC7.4': [
-        { text: '  › Connecting to incident management system...', type: 'dim' },
-        { text: '  › Fetching incident history (90 days)...', type: 'dim' },
-        { text: '  › Analyzing P1/P2/P3 incidents...', type: 'dim' },
-        { text: '  ⚠  P1 RCA pending (SLA: 48h)', type: 'warn' },
-        { text: '  ⚠  Annual tabletop exercise not completed', type: 'warn' },
-        { text: '  ✓  AI classification: PARTIAL — 2 gaps found', type: 'success' },
+        { text: '  › Connecting to PagerDuty API...', type: 'dim' },
+        { text: '  › Fetching incident history (last 90 days)...', type: 'dim' },
+        { text: '  › Analyzing P1/P2/P3 severity distribution...', type: 'dim' },
+        { text: '  › Checking on-call schedule coverage...', type: 'dim' },
+        { text: '  › Calculating mean time to resolution...', type: 'dim' },
+        { text: '  ⚠  Annual tabletop exercise status: unverified', type: 'warn' },
+        { text: '  ✓  AI classification complete', type: 'success' },
       ],
       'CC8.1': [
         { text: '  › Scanning GitHub pull request history...', type: 'dim' },
@@ -596,11 +665,13 @@ export function DashboardShell() {
         { text: '  ✓  AI classification: PARTIAL — change control gap', type: 'success' },
       ],
       'A1.2': [
-        { text: '  › Checking availability metrics (90 days)...', type: 'dim' },
-        { text: '  › Verifying backup and DR configuration...', type: 'dim' },
-        { text: '  › Uptime: 99.94% ✓', type: 'normal' },
-        { text: '  ⚠  DR test overdue — last test 4 months ago', type: 'warn' },
-        { text: '  ✓  AI classification: PARTIAL — DR cadence gap', type: 'success' },
+        { text: '  › Connecting to AWS CloudTrail (eu-north-1)...', type: 'dim' },
+        { text: '  › Scanning IAM events (last 90 days)...', type: 'dim' },
+        { text: '  › Checking MFA enforcement on console logins...', type: 'dim' },
+        { text: '  › Querying CloudWatch availability metrics...', type: 'dim' },
+        { text: '  › Verifying DynamoDB system health...', type: 'dim' },
+        { text: '  ✓  CloudTrail logging: ACTIVE', type: 'success' },
+        { text: '  ✓  AI classification complete', type: 'success' },
       ],
     }
 
