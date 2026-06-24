@@ -62,34 +62,36 @@ export default function LandingPage() {
           work into a 2-minute scan.
         </p>
 
-        <div className="flex items-center justify-center gap-4 pt-2">
-          <button
-            type="button"
-            onClick={() => router.push('/onboarding')}
-            className="rounded-xl bg-primary px-8 py-3.5 text-base font-semibold text-primary-foreground hover:bg-primary/90 transition-all active:scale-[0.98]"
-          >
-            Start free trial →
-          </button>
-          <a
-            href="#how-it-works"
-            className="rounded-xl border border-border px-8 py-3.5 text-base font-medium hover:bg-muted transition-colors"
-          >
-            See how it works
-          </a>
-        </div>
+        <div className="flex flex-col items-center gap-8 pt-2">
+          <div className="flex items-center justify-center gap-4">
+            <button
+              type="button"
+              onClick={() => router.push('/onboarding')}
+              className="rounded-xl bg-primary px-8 py-3.5 text-base font-semibold text-primary-foreground hover:bg-primary/90 transition-all active:scale-[0.98]"
+            >
+              Start free trial →
+            </button>
+            <a
+              href="#how-it-works"
+              className="rounded-xl border border-border px-8 py-3.5 text-base font-medium hover:bg-muted transition-colors"
+            >
+              See how it works
+            </a>
+          </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-4 max-w-2xl mx-auto">
-          {[
-            { value: '$30,000', label: 'Average audit cost saved' },
-            { value: '42', label: 'SOC 2 controls monitored' },
-            { value: '2 min', label: 'Evidence collection time' },
-            { value: '2', label: 'Compliance frameworks' },
-          ].map(stat => (
-            <div key={stat.label} className="text-center">
-              <div className="text-2xl font-bold text-gray-400">{stat.value}</div>
-              <div className="text-xs text-gray-500 mt-0.5 leading-tight">{stat.label}</div>
-            </div>
-          ))}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-10 gap-y-4 max-w-2xl w-full">
+            {[
+              { value: '$30,000', label: 'Average audit cost saved' },
+              { value: '42', label: 'SOC 2 controls monitored' },
+              { value: '2 min', label: 'Evidence collection time' },
+              { value: '2', label: 'Compliance frameworks' },
+            ].map(stat => (
+              <div key={stat.label} className="text-center">
+                <div className="text-2xl font-bold text-gray-400">{stat.value}</div>
+                <div className="text-xs text-gray-500 mt-0.5 leading-tight">{stat.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <p className="text-xs text-muted-foreground">
