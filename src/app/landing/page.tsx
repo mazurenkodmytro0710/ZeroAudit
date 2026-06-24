@@ -78,26 +78,23 @@ export default function LandingPage() {
           </a>
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          No credit card required · SOC 2 Type II certified infrastructure · Powered by AWS DynamoDB
-        </p>
-      </section>
-
-      {/* STATS BAR */}
-      <section className="border-y border-border bg-muted/20 py-10">
-        <div className="max-w-6xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-4 max-w-2xl mx-auto">
           {[
             { value: '$30,000', label: 'Average audit cost saved' },
             { value: '42', label: 'SOC 2 controls monitored' },
             { value: '2 min', label: 'Evidence collection time' },
             { value: '2', label: 'Compliance frameworks' },
           ].map(stat => (
-            <div key={stat.label}>
-              <div className="text-3xl font-bold">{stat.value}</div>
-              <div className="text-sm text-muted-foreground mt-1">{stat.label}</div>
+            <div key={stat.label} className="text-center">
+              <div className="text-2xl font-bold text-gray-400">{stat.value}</div>
+              <div className="text-xs text-gray-500 mt-0.5 leading-tight">{stat.label}</div>
             </div>
           ))}
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          No credit card required · SOC 2 Type II certified infrastructure · Powered by AWS DynamoDB
+        </p>
       </section>
 
       {/* HOW IT WORKS */}
