@@ -11,7 +11,7 @@ export default function HomePage() {
   useEffect(() => {
     const orgId = localStorage.getItem('zeroaudit_org_id')
     if (!orgId) {
-      router.replace('/onboarding')
+      router.replace('/landing')
     } else {
       setReady(true)
     }

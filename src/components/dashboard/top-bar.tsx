@@ -173,7 +173,8 @@ export function TopBar({ orgName, searchQuery = '', onSearchChange, onSearchClos
                 onClick={() => {
                   localStorage.removeItem('zeroaudit_org_id')
                   localStorage.removeItem('zeroaudit_org_name')
-                  window.location.href = '/onboarding'
+                  localStorage.removeItem('github_repo')
+                  window.location.href = '/landing'
                 }}
                 className="flex w-full items-center gap-1.5 px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10"
               >
