@@ -44,7 +44,7 @@ export default function LandingPage() {
       </nav>
 
       {/* HERO */}
-      <section className="max-w-6xl mx-auto px-6 py-24 text-center space-y-6">
+      <section className="max-w-6xl mx-auto px-6 pt-24 pb-40 text-center space-y-6">
         <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-4 py-1.5 text-xs font-medium text-muted-foreground">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
           Built for H0: Hack the Zero Stack · AWS + Vercel
